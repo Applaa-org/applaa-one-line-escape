@@ -1,0 +1,260 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ONE LINE ESCAPE - Preview</title>
+  <style>
+    html,body { height:100%; margin:0; background: #ffffff; font-family: Arial, sans-serif; }
+    #game { width:100%; height:100%; touch-action:none; }
+    #hud { position:absolute; top:10px; left:10px; }
+    #highScoreDisplay { display:block; font-weight:bold; margin-bottom:8px; }
+    #playerNameInput { margin-bottom:8px; }
+    #controls { position:absolute; top:10px; right:10px; }
+    button { padding:8px 12px; }
+    #replayLink { margin-left:10px; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div id="highScoreDisplay">High Score: 0</div>
+    <input id="playerNameInput" placeholder="Player name" />
+    <div id="currentScore">Score: 0</div>
+  </div>
+  <div id="controls">
+    <button id="resetBtn">Reset</button>
+    <button id="shareBtn">Share Replay</button>
+  </div>
+  <canvas id="game"></canvas>
+
+  <script>
+    // Simplified canvas preview that demonstrates core mechanic: draw single line to guide ball
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    let w = canvas.width = window.innerWidth;
+    let h = canvas.height = window.innerHeight;
+    let drawing = false;
+    let points = [];
+    let ball = { x: 150, y: 150, r: 12, vx: 0, vy: 0 };
+    const gravity = 900;
+    let launched = false;
+    let score = 0;
+
+    // Applaa storage integration keys
+    const GAME_ID = 'one_line_escape';
+    const HIGH_KEY = 'applaa-game-data-' + GAME_ID;
+
+    // Initialize high score to 0 immediately (MANDATORY)
+    document.addEventListener('DOMContentLoaded', () => {
+      const hs = document.getElementById('highScoreDisplay');
+      hs.textContent = 'High Score: 0';
+      hs.style.display = 'block';
+    });
+
+    // Load from parent (applaa) via postMessage - also read localStorage fallback
+    window.addEventListener('message', (e) => {
+      if (!e.data) return;
+      if (e.data.type === 'applaa-game-data-loaded') {
+        const d = e.data.data || {};
+        const high = d.highScore || 0;
+        document.getElementById('highScoreDisplay').textContent = 'High Score: ' + high;
+        if (d.lastPlayerName) document.getElementById('playerNameInput').value = d.lastPlayerName;
+      } else if (e.data.type === 'applaa-game-score-saved') {
+        // optional
+      }
+    });
+
+    // Also try localStorage fallback
+    function loadLocal() {
+      try {
+        const raw = localStorage.getItem(HIGH_KEY);
+        if (!raw) return;
+        const d = JSON.parse(raw);
+        const high = d.highScore || 0;
+        document.getElementById('highScoreDisplay').textContent = 'High Score: ' + high;
+        if (d.lastPlayerName) document.getElementById('playerNameInput').value = d.lastPlayerName;
+      } catch(e){}
+    }
+    loadLocal();
+
+    // Request main parent to load data (Applaa)
+    window.parent.postMessage({ type: 'applaa-game-load-data', gameId: GAME_ID }, '*');
+
+    function startDrawing(pos) {
+      if (launched) return;
+      drawing = true;
+      points = [pos];
+    }
+    function addPoint(pos) {
+      if (!drawing) return;
+      const last = points[points.length - 1];
+      const dx = pos.x - last.x, dy = pos.y - last.y;
+      if (Math.hypot(dx, dy) > 6) points.push(pos);
+    }
+    function finishDrawing() {
+      if (!drawing) return;
+      drawing = false;
+      launched = true;
+      // set initial velocity from last segment
+      if (points.length >= 2) {
+        const a = points[points.length - 2];
+        const b = points[points.length - 1];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        ball.vx = (dx/len) * 400;
+        ball.vy = (dy/len) * 400;
+      }
+    }
+
+    function update(dt) {
+      if (launched) {
+        ball.vy += gravity * dt;
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
+        // simple collision with drawn segments (distance to segment)
+        for (let i=0;i<points.length-1;i++){
+          const a = points[i], b = points[i+1];
+          const proj = projectPointToSegment({x:ball.x,y:ball.y}, a, b);
+          const dist = Math.hypot(ball.x-proj.x, ball.y-proj.y);
+          if (dist < ball.r + 4) {
+            // simple bounce
+            const nx = (b.y - a.y);
+            const ny = -(b.x - a.x);
+            const nlen = Math.hypot(nx, ny) || 1;
+            const nxn = nx / nlen, nyn = ny / nlen;
+            // reflect velocity
+            const dot = ball.vx*nxn + ball.vy*nyn;
+            ball.vx = ball.vx - 2*dot*nxn;
+            ball.vy = ball.vy - 2*dot*nyn;
+            ball.vx *= 0.7; ball.vy *= 0.7;
+          }
+        }
+        // check exit region
+        if (ball.x > w - 150 && ball.y > h/2 - 100 && ball.y < h/2 + 100) {
+          // victory
+          launched = false;
+          score += 100;
+          document.getElementById('currentScore').textContent = 'Score: ' + score;
+          saveScore();
+          alert('Victory! Score: ' + score);
+        }
+        if (ball.y > h + 200) {
+          // defeat
+          launched = false;
+          alert('Defeat. Try again.');
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0,0,w,h);
+      // draw line
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i=0;i<points.length;i++){
+        const p = points[i];
+        if (i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      // draw exit
+      ctx.fillStyle = '#e0ffe0';
+      ctx.fillRect(w - 200, h/2 - 100, 200, 200);
+      ctx.strokeStyle = '#00aa00';
+      ctx.strokeRect(w - 200, h/2 - 100, 200, 200);
+      ctx.fillStyle = '#000';
+      ctx.fillText('EXIT', w-120, h/2);
+      // draw ball
+      ctx.beginPath();
+      ctx.fillStyle = '#333';
+      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    let last = performance.now();
+    function loop(t) {
+      const dt = (t - last) / 1000;
+      last = t;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    function projectPointToSegment(p, a, b) {
+      const vx = b.x - a.x, vy = b.y - a.y;
+      const wx = p.x - a.x, wy = p.y - a.y;
+      const c1 = vx*wx + vy*wy;
+      if (c1 <= 0) return a;
+      const c2 = vx*vx + vy*vy;
+      if (c2 <= c1) return b;
+      const t = c1 / c2;
+      return { x: a.x + vx*t, y: a.y + vy*t };
+    }
+
+    // Input handlers
+    canvas.addEventListener('pointerdown', (e) => {
+      startDrawing({x:e.clientX, y:e.clientY});
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      addPoint({x:e.clientX, y:e.clientY});
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      finishDrawing();
+    });
+
+    window.addEventListener('resize', () => {
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      points = [];
+      drawing = false;
+      launched = false;
+      ball.x = 150; ball.y = 150; ball.vx = 0; ball.vy = 0;
+      score = 0;
+      document.getElementById('currentScore').textContent = 'Score: 0';
+    });
+
+    // Share replay - create a small JSON of points and open share dialog
+    document.getElementById('shareBtn').addEventListener('click', () => {
+      const replay = JSON.stringify({ points: points, score: score, name: document.getElementById('playerNameInput').value });
+      const url = 'data:text/plain;charset=utf-8,' + encodeURIComponent(replay);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'one_line_escape_replay.json';
+      a.click();
+    });
+
+    // Save score locally and post message to parent (Applaa)
+    function saveScore() {
+      const name = document.getElementById('playerNameInput').value || 'Player';
+      // Save to localStorage structure similar to Applaa
+      let data = { gameId: GAME_ID, scores: [], highScore: 0, lastPlayerName: name };
+      try {
+        const existing = JSON.parse(localStorage.getItem(HIGH_KEY) || 'null');
+        if (existing) data = existing;
+      } catch(e){}
+      data.lastPlayerName = name;
+      data.scores = data.scores || [];
+      data.scores.push({ playerName: name, score: score, timestamp: new Date().toISOString() });
+      data.highScore = Math.max(data.highScore || 0, score);
+      localStorage.setItem(HIGH_KEY, JSON.stringify(data));
+      // Notify parent
+      window.parent.postMessage({ type: 'applaa-game-save-score', gameId: GAME_ID, playerName: name, score: score }, '*');
+      // Also request updated data (ask parent to send applaa-game-data-loaded)
+      window.parent.postMessage({ type: 'applaa-game-load-data', gameId: GAME_ID }, '*');
+      document.getElementById('highScoreDisplay').textContent = 'High Score: ' + data.highScore;
+    }
+
+    // Expose for parent to send data directly
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'applaa-game-data-loaded') {
+        const d = e.data.data || {};
+        if (d.highScore !== undefined) document.getElementById('highScoreDisplay').textContent = 'High Score: ' + d.highScore;
+        if (d.lastPlayerName) document.getElementById('playerNameInput').value = d.lastPlayerName;
+      }
+    });
+  </script>
+</body>
+</html>

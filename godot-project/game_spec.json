@@ -1,0 +1,34 @@
+{
+  "game": {
+    "name": "ONE LINE ESCAPE",
+    "type": "2D",
+    "genre": "puzzle",
+    "description": "Guide a ball to the exit with a single drawn line. The line cannot be redrawn after release."
+  },
+  "settings": {
+    "window": { "width": 1024, "height": 600 },
+    "physics": { "gravity": 900 }
+  },
+  "player": {
+    "name": "Player",
+    "health": 1,
+    "speed": 0,
+    "abilities": ["draw_line"]
+  },
+  "entities": {
+    "collectibles": [],
+    "obstacles": []
+  },
+  "levels": [
+    {
+      "name": "Puzzle 1",
+      "background": "white",
+      "obstacles": []
+    }
+  ],
+  "logic": {
+    "winCondition": "reach_goal",
+    "loseCondition": "fall_off_map",
+    "scoring": { "pointsPerWin": 100 }
+  }
+}
